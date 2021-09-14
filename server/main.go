@@ -18,7 +18,7 @@ func init() {
 }
 
 func main() {
-	demoURL, err := url.Parse("https://localhost")
+	demoURL, err := url.Parse("https://localhost/demo.json")
 	if err != nil {
 		log.Fatal(err)
 	}
