@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"log"
@@ -12,35 +13,83 @@ import (
 
 var upgrader = websocket.Upgrader{}
 var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+var infuraUrl2 = "wss://mainnet.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
 func init() {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 }
 
+type Result struct {
+	TypeMessage int
+	Message     []byte
+	Name        string
+	Err         error
+}
+
 func main() {
 	proxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		fmt.Println("Hola")
-		ws, _ := upgrader.Upgrade(rw, req, nil)
+		client, _ := upgrader.Upgrade(rw, req, nil)
 		// defer ws.Close()
-		c, _, _ := websocket.DefaultDialer.Dial(infuraUrl, nil)
+		infura, _, _ := websocket.DefaultDialer.Dial(infuraUrl, nil)
+		infura2, _, _ := websocket.DefaultDialer.Dial(infuraUrl2, nil)
 		fmt.Println("1")
+		messages := make(chan Result)
+
 		go func() {
 			for {
-				typeMessage, message, _ := ws.ReadMessage()
-				log.Printf("Message received from ws: %s", message)
-				c.WriteMessage(typeMessage, message)
+				typeMessage, message, _ := client.ReadMessage()
+				log.Printf("Message received from client: %s", message)
+
+				infura.WriteMessage(typeMessage, message)
+				infura2.WriteMessage(typeMessage, message)
 			}
 		}()
-		go func() {
-			for {
-				typeMessage, message, _ := c.ReadMessage()
-				log.Printf("Message received from c: %s", message)
-				ws.WriteMessage(typeMessage, message)
-			}
-		}()
+		go readMessagesFromRPC(infura, messages, "infura")
+		go readMessagesFromRPC(infura2, messages, "infura2")
 		fmt.Println("2")
+		var infura1Responses = make([]Result, 0)
+		var infura2Responses = make([]Result, 0)
+		for {
+			var result = <-messages
+
+			if result.Name == "infura" {
+				fmt.Println("Handling response from infura")
+				infura1Responses = append(infura1Responses, result)
+				for _, infura2Result := range infura2Responses {
+					if bytes.Compare(result.Message, infura2Result.Message) == 0 {
+						client.WriteMessage(result.TypeMessage, result.Message)
+					}
+				}
+			}
+
+			if result.Name == "infura2" {
+				fmt.Println("Handling response from infura2")
+				infura2Responses = append(infura2Responses, result)
+				for _, infura1Result := range infura1Responses {
+					if bytes.Compare(result.Message, infura1Result.Message) == 0 {
+						client.WriteMessage(result.TypeMessage, result.Message)
+					}
+				}
+			}
+
+		}
 	})
 	http.ListenAndServe(":8080", proxy)
+}
+
+func readMessagesFromRPC(conn *websocket.Conn, ch chan Result, name string) {
+	for {
+		typeMessage, message, err := conn.ReadMessage()
+		log.Printf("Message received from %s: %s\n", name, message)
+		var res = new(Result)
+		res.TypeMessage = typeMessage
+		res.Message = message
+		res.Name = name
+		res.Err = err
+		ch <- *res
+		//client.WriteMessage(typeMessage, message)
+	}
 }
 
 func setReq(req *http.Request, url *url.URL) {
