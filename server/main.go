@@ -11,14 +11,18 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"websocket"
 )
+
+var upgrader = websocket.Upgrader{}
+var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
 
 func init() {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 }
 
 func main() {
-	demoURL, err := url.Parse("https://localhost/demo.json")
+	demoURL, err := url.Parse(infuraUrl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,6 +33,10 @@ func main() {
 	}
 	var selected = ""
 	proxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		ws, _ := upgrader.Upgrade(rw, req, nil)
+
+		defer ws.Close()
+
 		var resp *http.Response
 		respDefault, err := getResponse(demoURL)
 		respGoogle, errGoogle := getResponse(demoGoogleURL)
@@ -118,4 +126,15 @@ func getResponse(url *url.URL) (*http.Response, error) {
 	req.Header.Set("X-Forwarded-For", s)
 	resp, err := http.DefaultClient.Do(req)
 	return resp, err
+}
+
+func handleUrl(url string) {
+	c, _, _ := websocket.DefaultDialer.Dial(url, nil)
+
+	go func() {
+		for {
+			_, message, _ := c.ReadMessage()
+			log.Printf("Message received: %s", message)
+		}
+	}()
 }
