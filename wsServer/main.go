@@ -1,13 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"websocket"
 )
 
@@ -57,7 +58,7 @@ func main() {
 				fmt.Println("Handling response from infura")
 				infura1Responses = append(infura1Responses, result)
 				for _, infura2Result := range infura2Responses {
-					if bytes.Compare(result.Message, infura2Result.Message) == 0 {
+					if equals(result.Message, infura2Result.Message) {
 						client.WriteMessage(result.TypeMessage, result.Message)
 					}
 				}
@@ -67,7 +68,7 @@ func main() {
 				fmt.Println("Handling response from infura2")
 				infura2Responses = append(infura2Responses, result)
 				for _, infura1Result := range infura1Responses {
-					if bytes.Compare(result.Message, infura1Result.Message) == 0 {
+					if equals(result.Message, infura1Result.Message) {
 						client.WriteMessage(result.TypeMessage, result.Message)
 					}
 				}
@@ -76,6 +77,23 @@ func main() {
 		}
 	})
 	http.ListenAndServe(":8080", proxy)
+}
+
+func extractResult(message []byte) map[string]interface{} {
+	var result map[string]interface{}
+	json.Unmarshal(message, &result)
+
+	var params = result["params"]
+	if params == nil {
+		return nil
+	}
+	return params.(map[string]interface{})["result"].(map[string]interface{})
+}
+
+func equals(message1, message2 []byte) bool {
+	var result1 = extractResult(message1)
+	var result2 = extractResult(message2)
+	return reflect.DeepEqual(result1, result2)
 }
 
 func readMessagesFromRPC(conn *websocket.Conn, ch chan Result, name string) {
