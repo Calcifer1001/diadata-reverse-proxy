@@ -13,8 +13,11 @@ import (
 )
 
 var upgrader = websocket.Upgrader{}
-var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
-var infuraUrl2 = "wss://mainnet.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
+
+//var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+//var infuraUrl2 = "wss://mainnet.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
+var infuraUrl = "wss://kovan.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
 func init() {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -25,6 +28,12 @@ type Result struct {
 	Message     []byte
 	Name        string
 	Err         error
+}
+
+type WssInfo struct {
+	Name       string
+	Connection websocket.Conn
+	Responses  []Result
 }
 
 func main() {
@@ -46,37 +55,43 @@ func main() {
 				infura2.WriteMessage(typeMessage, message)
 			}
 		}()
-		go readMessagesFromRPC(infura, messages, "infura")
-		go readMessagesFromRPC(infura2, messages, "infura2")
-		fmt.Println("2")
-		var infura1Responses = make([]Result, 0)
-		var infura2Responses = make([]Result, 0)
+
+		var wssList = make([]WssInfo, 0)
+		wssList = append(wssList, *generateWssInfo("infura1", *infura))
+		wssList = append(wssList, *generateWssInfo("infura2", *infura2))
+
+		go readMessagesFromRPC(wssList[0], messages)
+		go readMessagesFromRPC(wssList[1], messages)
+
 		for {
 			var result = <-messages
-
-			if result.Name == "infura" {
-				fmt.Println("Handling response from infura")
-				infura1Responses = append(infura1Responses, result)
-				for _, infura2Result := range infura2Responses {
-					if equals(result.Message, infura2Result.Message) {
-						client.WriteMessage(result.TypeMessage, result.Message)
+			for i := 0; i < len(wssList); i++ {
+				if result.Name == wssList[i].Name {
+					fmt.Printf("Handling response from %s\n", wssList[i].Name)
+					wssList[i].Responses = append(wssList[i].Responses, result)
+					for j := 0; j < len(wssList); j++ {
+						if i == j {
+							continue
+						}
+						if isResultInResultList(result, wssList[j].Responses) {
+							client.WriteMessage(result.TypeMessage, result.Message)
+							// Borrar los responses de donde llego y de donde estaba
+						}
 					}
 				}
 			}
-
-			if result.Name == "infura2" {
-				fmt.Println("Handling response from infura2")
-				infura2Responses = append(infura2Responses, result)
-				for _, infura1Result := range infura1Responses {
-					if equals(result.Message, infura1Result.Message) {
-						client.WriteMessage(result.TypeMessage, result.Message)
-					}
-				}
-			}
-
 		}
 	})
 	http.ListenAndServe(":8080", proxy)
+}
+
+func isResultInResultList(result Result, responseList []Result) bool {
+	for _, otherResponses := range responseList {
+		if equals(result.Message, otherResponses.Message) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractResult(message []byte) map[string]interface{} {
@@ -90,20 +105,28 @@ func extractResult(message []byte) map[string]interface{} {
 	return params.(map[string]interface{})["result"].(map[string]interface{})
 }
 
+func generateWssInfo(name string, connection websocket.Conn) *WssInfo {
+	var wssInfo = new(WssInfo)
+	wssInfo.Name = name
+	wssInfo.Connection = connection
+	wssInfo.Responses = make([]Result, 0)
+	return wssInfo
+}
+
 func equals(message1, message2 []byte) bool {
 	var result1 = extractResult(message1)
 	var result2 = extractResult(message2)
 	return reflect.DeepEqual(result1, result2)
 }
 
-func readMessagesFromRPC(conn *websocket.Conn, ch chan Result, name string) {
+func readMessagesFromRPC(wssInfo WssInfo, ch chan Result) {
 	for {
-		typeMessage, message, err := conn.ReadMessage()
-		log.Printf("Message received from %s: %s\n", name, message)
+		typeMessage, message, err := wssInfo.Connection.ReadMessage()
+		log.Printf("Message received from %s: %s\n", wssInfo.Name, message)
 		var res = new(Result)
 		res.TypeMessage = typeMessage
 		res.Message = message
-		res.Name = name
+		res.Name = wssInfo.Name
 		res.Err = err
 		ch <- *res
 		//client.WriteMessage(typeMessage, message)
