@@ -8,16 +8,21 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"reflect"
+	"strings"
 	"websocket"
 )
 
 var upgrader = websocket.Upgrader{}
 
-//var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+
 //var infuraUrl2 = "wss://mainnet.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
-var infuraUrl = "wss://kovan.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
-var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
+// var infuraUrl = "wss://kovan.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+var chainstackUrl = "wss://ws-nd-986-369-125.p2pify.com/c669411d9bcc43aa0519602a30346446"
+var alchemyUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedAzzNTd6"
+var subscriptionHash interface{}
+
+// var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
 func init() {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
@@ -38,12 +43,12 @@ type WssInfo struct {
 
 func main() {
 	proxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		fmt.Println("Hola")
 		client, _ := upgrader.Upgrade(rw, req, nil)
 		// defer ws.Close()
 		infura, _, _ := websocket.DefaultDialer.Dial(infuraUrl, nil)
-		infura2, _, _ := websocket.DefaultDialer.Dial(infuraUrl2, nil)
-		fmt.Println("1")
+		// chainstack, _, _ := websocket.DefaultDialer.Dial(chainstackUrl, nil)
+		alchemy, _, _ := websocket.DefaultDialer.Dial(alchemyUrl, nil)
+
 		messages := make(chan Result)
 
 		go func() {
@@ -52,13 +57,16 @@ func main() {
 				log.Printf("Message received from client: %s", message)
 
 				infura.WriteMessage(typeMessage, message)
-				infura2.WriteMessage(typeMessage, message)
+				// chainstack.WriteMessage(typeMessage, message)
+				alchemy.WriteMessage(typeMessage, message)
 			}
 		}()
 
 		var wssList = make([]WssInfo, 0)
-		wssList = append(wssList, *generateWssInfo("infura1", *infura))
-		wssList = append(wssList, *generateWssInfo("infura2", *infura2))
+		wssList = append(wssList, *generateWssInfo("infura", *infura))
+		// wssList = append(wssList, *generateWssInfo("chainstack", *chainstack))
+		wssList = append(wssList, *generateWssInfo("alchemy", *alchemy))
+		var sentResults []Result = make([]Result, 0)
 
 		go readMessagesFromRPC(wssList[0], messages)
 		go readMessagesFromRPC(wssList[1], messages)
@@ -67,15 +75,22 @@ func main() {
 			var result = <-messages
 			for i := 0; i < len(wssList); i++ {
 				if result.Name == wssList[i].Name {
-					fmt.Printf("Handling response from %s\n", wssList[i].Name)
-					wssList[i].Responses = append(wssList[i].Responses, result)
 					for j := 0; j < len(wssList); j++ {
 						if i == j {
 							continue
 						}
-						if isResultInResultList(result, wssList[j].Responses) {
+						if ok, index := isResultInResultList(result, wssList[j].Responses); ok {
+							result.Message = setSubscriptionHash(result.Message)
 							client.WriteMessage(result.TypeMessage, result.Message)
+							sentResults = append(sentResults, result)
+							wssList[j].Responses = remove(wssList[j].Responses, index)
 							// Borrar los responses de donde llego y de donde estaba
+						} else {
+							if ok, index := isResultInResultList(result, sentResults); ok {
+								sentResults = remove(sentResults, index)
+							} else {
+								wssList[i].Responses = append(wssList[i].Responses, result)
+							}
 						}
 					}
 				}
@@ -85,13 +100,34 @@ func main() {
 	http.ListenAndServe(":8080", proxy)
 }
 
-func isResultInResultList(result Result, responseList []Result) bool {
-	for _, otherResponses := range responseList {
+func remove(slice []Result, s int) []Result {
+	return append(slice[:s], slice[s+1:]...)
+}
+
+func isResultInResultList(result Result, responseList []Result) (bool, int) {
+	for i, otherResponses := range responseList {
 		if equals(result.Message, otherResponses.Message) {
-			return true
+			return true, i
 		}
 	}
-	return false
+	return false, -1
+}
+
+func setSubscriptionHash(message []byte) []byte {
+	var result map[string]interface{}
+	json.Unmarshal(message, &result)
+
+	var params = result["params"]
+	if params == nil {
+		return message
+	}
+
+	params.(map[string]interface{})["subscription"] = subscriptionHash
+	var output, err = json.Marshal(result)
+	if err != nil {
+		fmt.Println("Error seteando subscription hash")
+	}
+	return output
 }
 
 func extractResult(message []byte) map[string]interface{} {
@@ -100,6 +136,10 @@ func extractResult(message []byte) map[string]interface{} {
 
 	var params = result["params"]
 	if params == nil {
+		if subscriptionHash == nil {
+			subscriptionHash = result["result"]
+			fmt.Printf("Subscription hash set to %s\n\n", subscriptionHash)
+		}
 		return nil
 	}
 	return params.(map[string]interface{})["result"].(map[string]interface{})
@@ -114,22 +154,23 @@ func generateWssInfo(name string, connection websocket.Conn) *WssInfo {
 }
 
 func equals(message1, message2 []byte) bool {
-	var result1 = extractResult(message1)
-	var result2 = extractResult(message2)
-	return reflect.DeepEqual(result1, result2)
+	var result1 map[string]interface{} = extractResult(message1)
+	var result2 map[string]interface{} = extractResult(message2)
+
+	// Cannot use deep equal because some server return message with uppercase and some with lowercase
+	return strings.EqualFold(fmt.Sprint(result1), fmt.Sprint(result2))
 }
 
 func readMessagesFromRPC(wssInfo WssInfo, ch chan Result) {
 	for {
 		typeMessage, message, err := wssInfo.Connection.ReadMessage()
-		log.Printf("Message received from %s: %s\n", wssInfo.Name, message)
+		log.Printf("Message received from %s: %s\n\n", wssInfo.Name, message)
 		var res = new(Result)
 		res.TypeMessage = typeMessage
 		res.Message = message
 		res.Name = wssInfo.Name
 		res.Err = err
 		ch <- *res
-		//client.WriteMessage(typeMessage, message)
 	}
 }
 
