@@ -20,7 +20,7 @@ var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
 // var infuraUrl = "wss://kovan.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
 var chainstackUrl = "wss://ws-nd-986-369-125.p2pify.com/c669411d9bcc43aa0519602a30346446"
 var alchemyUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedAzzNTd6"
-var subscriptionHash interface{}
+var globalSubscriptionHash interface{}
 
 // var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
@@ -122,7 +122,7 @@ func setSubscriptionHash(message []byte) []byte {
 		return message
 	}
 
-	params.(map[string]interface{})["subscription"] = subscriptionHash
+	params.(map[string]interface{})["subscription"] = globalSubscriptionHash
 	var output, err = json.Marshal(result)
 	if err != nil {
 		fmt.Println("Error seteando subscription hash")
@@ -136,9 +136,9 @@ func extractResult(message []byte) map[string]interface{} {
 
 	var params = result["params"]
 	if params == nil {
-		if subscriptionHash == nil {
-			subscriptionHash = result["result"]
-			fmt.Printf("Subscription hash set to %s\n\n", subscriptionHash)
+		if globalSubscriptionHash == nil {
+			globalSubscriptionHash = result["result"]
+			fmt.Printf("Subscription hash set to %s\n\n", globalSubscriptionHash)
 		}
 		return nil
 	}
