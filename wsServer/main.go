@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"websocket"
 )
 
@@ -21,6 +22,7 @@ var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
 var chainstackUrl = "wss://ws-nd-986-369-125.p2pify.com/c669411d9bcc43aa0519602a30346446"
 var alchemyUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedAzzNTd6"
 var globalSubscriptionHash interface{}
+var globalResponseTimeoutInSeconds int64 = 5
 
 // var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
@@ -29,10 +31,11 @@ func init() {
 }
 
 type Result struct {
-	TypeMessage int
-	Message     []byte
-	Name        string
-	Err         error
+	TypeMessage           int
+	Message               []byte
+	Name                  string
+	Err                   error
+	TimeReceivedInSeconds int64
 }
 
 type WssInfo struct {
@@ -42,6 +45,7 @@ type WssInfo struct {
 }
 
 func main() {
+
 	proxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		client, _ := upgrader.Upgrade(rw, req, nil)
 		// defer ws.Close()
@@ -66,31 +70,28 @@ func main() {
 		wssList = append(wssList, *generateWssInfo("infura", *infura))
 		// wssList = append(wssList, *generateWssInfo("chainstack", *chainstack))
 		wssList = append(wssList, *generateWssInfo("alchemy", *alchemy))
-		var sentResults []Result = make([]Result, 0)
 
 		go readMessagesFromRPC(wssList[0], messages)
 		go readMessagesFromRPC(wssList[1], messages)
+		go func() {
+			for true {
+				cleanResponsesByTimeout(wssList)
+				time.Sleep(1)
+			}
+		}()
 
 		for {
 			var result = <-messages
 			for i := 0; i < len(wssList); i++ {
 				if result.Name == wssList[i].Name {
+					wssList[i].Responses = append(wssList[i].Responses, result)
 					for j := 0; j < len(wssList); j++ {
 						if i == j {
 							continue
 						}
-						if ok, index := isResultInResultList(result, wssList[j].Responses); ok {
+						if ok, _ := isResultInResultList(result, wssList[j].Responses); ok {
 							result.Message = setSubscriptionHash(result.Message)
 							client.WriteMessage(result.TypeMessage, result.Message)
-							sentResults = append(sentResults, result)
-							wssList[j].Responses = remove(wssList[j].Responses, index)
-							// Borrar los responses de donde llego y de donde estaba
-						} else {
-							if ok, index := isResultInResultList(result, sentResults); ok {
-								sentResults = remove(sentResults, index)
-							} else {
-								wssList[i].Responses = append(wssList[i].Responses, result)
-							}
 						}
 					}
 				}
@@ -98,6 +99,18 @@ func main() {
 		}
 	})
 	http.ListenAndServe(":8080", proxy)
+}
+
+func cleanResponsesByTimeout(wssList []WssInfo) {
+	for i := 0; i < len(wssList); i++ {
+		var wss = wssList[i]
+		for j := 0; j < len(wss.Responses); j++ {
+			if time.Now().Unix()-wss.Responses[j].TimeReceivedInSeconds > globalResponseTimeoutInSeconds {
+				wss.Responses = append(wss.Responses[:j], wss.Responses[j+1:]...)
+				j--
+			}
+		}
+	}
 }
 
 func remove(slice []Result, s int) []Result {
@@ -170,6 +183,7 @@ func readMessagesFromRPC(wssInfo WssInfo, ch chan Result) {
 		res.Message = message
 		res.Name = wssInfo.Name
 		res.Err = err
+		res.TimeReceivedInSeconds = time.Now().Unix()
 		ch <- *res
 	}
 }
