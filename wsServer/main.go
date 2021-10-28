@@ -13,14 +13,18 @@ import (
 
 var upgrader = websocket.Upgrader{}
 
-var infuraUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
+var primaryUrl = "wss://mainnet.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
 
 //var infuraUrl2 = "wss://mainnet.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 // var infuraUrl = "wss://kovan.infura.io/ws/v3/9bdd9b1d1270497795af3f522ad85091"
-var chainstackUrl = "wss://ws-nd-986-369-125.p2pify.com/c669411d9bcc43aa0519602a30346446"
-var alchemyUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedAzzNTd6"
+var secondaryUrl = "wss://ws-nd-986-369-125.p2pify.com/c669411d9bcc43aa0519602a30346446"
+var tertiaryUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedAzzNTd6"
+var primaryServer *websocket.Conn
+var secondaryServer *websocket.Conn
+var tertiaryServer *websocket.Conn
 var globalSubscriptionHash interface{}
 var globalResponseTimeoutInSeconds int64 = 15
+var clientPendingResponses map[int]int
 
 // var infuraUrl2 = "wss://kovan.infura.io/ws/v3/1adea96b97c04c1ab7c0efae5a00d840"
 
@@ -43,67 +47,138 @@ type WssInfo struct {
 }
 
 func main() {
+	initializeServiceLists()
+
+	primaryServer, _, _ := websocket.DefaultDialer.Dial(primaryUrl, nil)
+	secondaryServer, _, _ := websocket.DefaultDialer.Dial(secondaryUrl, nil)
+	tertiaryServer, _, _ := websocket.DefaultDialer.Dial(tertiaryUrl, nil)
 
 	proxy := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		client, _ := upgrader.Upgrade(rw, req, nil)
-		// defer ws.Close()
-		infura, _, _ := websocket.DefaultDialer.Dial(infuraUrl, nil)
-		chainstack, _, _ := websocket.DefaultDialer.Dial(chainstackUrl, nil)
-		alchemy, _, _ := websocket.DefaultDialer.Dial(alchemyUrl, nil)
-
+		defer client.Close()
 		messages := make(chan Result)
 
+		var wssList = make([]WssInfo, 0)
+		wssList = append(wssList, *generateWssInfo("primary", *primaryServer))
+		wssList = append(wssList, *generateWssInfo("secondary", *secondaryServer))
+		wssList = append(wssList, *generateWssInfo("tertiary", *tertiaryServer))
+		var sentMessages = make([]Result, 0)
+
+		// Receive a message from the client it sends it to the corresponding rpc services
 		go func() {
 			for {
 				typeMessage, message, _ := client.ReadMessage()
 				log.Printf("Message received from client: %s", message)
 
-				infura.WriteMessage(typeMessage, message)
-				chainstack.WriteMessage(typeMessage, message)
-				alchemy.WriteMessage(typeMessage, message)
+				sendMessage(typeMessage, message, messages)
 			}
 		}()
-
-		var wssList = make([]WssInfo, 0)
-		wssList = append(wssList, *generateWssInfo("infura", *infura))
-		wssList = append(wssList, *generateWssInfo("chainstack", *chainstack))
-		wssList = append(wssList, *generateWssInfo("alchemy", *alchemy))
-		var sentMessages = make([]Result, 0)
 
 		for _, wss := range wssList {
 			go readMessagesFromRPC(wss, messages)
 		}
 
 		go func() {
-			for true {
+			for {
 				wssList = cleanResponsesByTimeout(wssList)
 				time.Sleep(5 * time.Second)
 			}
 		}()
 
 		for {
-			var result = <-messages
-			for i := 0; i < len(wssList); i++ {
-				if result.Name == wssList[i].Name {
-					wssList[i].Responses = append(wssList[i].Responses, result)
-					for j := 0; j < len(wssList); j++ {
-						if i == j {
-							continue
-						}
-						if ok, _ := isResultInResultList(result, sentMessages); ok {
-							continue
-						}
-						if ok, _ := isResultInResultList(result, wssList[j].Responses); ok {
-							result.Message = setSubscriptionHash(result.Message)
-							client.WriteMessage(result.TypeMessage, result.Message)
-							sentMessages = append(sentMessages, result)
-						}
-					}
-				}
-			}
+			var result Result = <-messages
+			handleMessage(client, wssList, result, &sentMessages)
 		}
 	})
 	http.ListenAndServe(":8080", proxy)
+}
+
+func sendMessage(typeMessage int, message []byte, messages chan Result) {
+	var id, action = getActionAndIdFromMessage(message)
+	clientPendingResponses[id] = action
+
+	switch action {
+	case ACTION_SERVICE_DOESNT_EXISTS:
+		// Send to the corresponding channel the response
+		var result Result = createErrorResult(id, "Service doesn't exists")
+		messages <- result
+	case ACTION_SEND_FIRST_RESPONSE:
+		primaryServer.WriteMessage(typeMessage, message)
+		secondaryServer.WriteMessage(typeMessage, message)
+		tertiaryServer.WriteMessage(typeMessage, message)
+	case ACTION_COMPARE_SERVICES:
+		primaryServer.WriteMessage(typeMessage, message)
+		secondaryServer.WriteMessage(typeMessage, message)
+		tertiaryServer.WriteMessage(typeMessage, message)
+	case ACTION_SEND_ONLY_ONCE:
+		primaryServer.WriteMessage(typeMessage, message)
+	case ACTION_SEND_ONLY_TO_PRIMARY:
+		primaryServer.WriteMessage(typeMessage, message)
+	case ACTION_DEPRECATED:
+		var result Result = createErrorResult(id, "Service deprecated")
+		messages <- result
+	}
+}
+
+func createErrorResult(id int, message string) Result {
+	var jsonMessage string = fmt.Sprintf("{\"id\":%d,\"result\":%s}", id, message)
+	var result Result
+	result.TypeMessage = websocket.TextMessage
+	result.Message = []byte(jsonMessage)
+	result.Name = "primary"
+	result.Err = nil
+	result.TimeReceivedInSeconds = 0
+	return result
+}
+
+func handleMessage(client *websocket.Conn, wssList []WssInfo, result Result, sentMessages []Result) {
+	var resultMap map[string]interface{}
+	json.Unmarshal(result.Message, &result)
+	var id int = resultMap["id"].(int)
+	if _, ok := clientPendingResponses[id]; !ok {
+		fmt.Println("Message already sent. Discarding")
+		return
+	}
+	var sent = false
+	switch clientPendingResponses[id] {
+	case ACTION_SEND_FIRST_RESPONSE:
+		client.WriteMessage(result.TypeMessage, result.Message)
+		sent = true
+	case ACTION_COMPARE_SERVICES:
+		sent = compareAndSendOnMatch(client, wssList, result, &sentMessages)
+	case ACTION_SEND_ONLY_ONCE:
+		client.WriteMessage(result.TypeMessage, result.Message)
+		sent = true
+	case ACTION_SEND_ONLY_TO_PRIMARY:
+		client.WriteMessage(result.TypeMessage, result.Message)
+		sent = true
+	}
+	if sent {
+		delete(clientPendingResponses, id)
+	}
+}
+
+func compareAndSendOnMatch(client *websocket.Conn, wssList []WssInfo, result Result, sentMessages []Result) bool {
+	for i := 0; i < len(wssList); i++ {
+		if result.Name == wssList[i].Name {
+			wssList[i].Responses = append(wssList[i].Responses, result)
+			for j := 0; j < len(wssList); j++ {
+				if i == j {
+					continue
+				}
+				if ok, _ := isResultInResultList(result, sentMessages); ok {
+					continue
+				}
+				if ok, _ := isResultInResultList(result, wssList[j].Responses); ok {
+					result.Message = setSubscriptionHash(result.Message)
+					client.WriteMessage(result.TypeMessage, result.Message)
+					sentMessages = append(sentMessages, result)
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func cleanResponsesByTimeout(wssList []WssInfo) []WssInfo {

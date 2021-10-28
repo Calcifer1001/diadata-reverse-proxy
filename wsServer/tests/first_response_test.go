@@ -3,11 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"websocket"
 )
 
 var primaryUrl = "wss://kovan.infura.io/ws/v3/a0bfa51a18b24e1fac45a36481bf7f61"
+
+var typeObject = reflect.TypeOf(make(map[string]interface{}))
+var typeString = reflect.TypeOf("")
+var typeBoolean = reflect.TypeOf(true)
 
 func printMap(json map[string]interface{}, t *testing.T) {
 	for k, v := range json {
@@ -27,50 +32,56 @@ func WebSocketCall(Message string) []byte {
 	return jsonResponse
 }
 
-func PrintResult(Response []byte, t *testing.T) {
-	var result map[string]interface{}
-	json.Unmarshal(Response, &result)
+func basicValidations(result map[string]interface{}, t *testing.T, dataType reflect.Type) {
 	printMap(result, t)
-	searchedAttribute := "result"
-	value, ok := result["result"]
+	var searchedAttribute string = "result"
+	value, ok := result[searchedAttribute]
 	if !ok {
 		t.Errorf("Searched attribute %v not found", searchedAttribute)
 	}
-	if value.(type) == string {
-		t.Errorf("Value %v is not a string", value)
+	var typeOfValue = reflect.TypeOf(value)
+	if dataType != typeOfValue {
+		t.Errorf("Value %v is not a %v", value, dataType)
 	}
 
 }
 
+func convertToObject(response []byte) map[string]interface{} {
+	var result map[string]interface{}
+	json.Unmarshal(response, &result)
+
+	return result
+}
+
 func TestWeb3ClientVersion(t *testing.T) {
-	messageToSend := "{\"method\":\"web3_clientVersion\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	var messageToSend string = "{\"method\":\"web3_clientVersion\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
-
-	PrintResult(jsonResponse, t)
+	var jsonResponse []byte = WebSocketCall(messageToSend)
+	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
+	basicValidations(jsonObject, t, typeString)
 }
 func TestWeb3Sha3(t *testing.T) {
-	messageToSend := "{\"method\":\"web3_sha3\",\"params\":[\"0x68656c6c6f20776f726c64\"],\"jsonrpc\":\"2.0\",\"id\":67}"
+	var messageToSend string = "{\"method\":\"web3_sha3\",\"params\":[\"0x68656c6c6f20776f726c64\"],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
-
-	PrintResult(jsonResponse, t)
+	var jsonResponse []byte = WebSocketCall(messageToSend)
+	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
+	basicValidations(jsonObject, t, typeString)
 }
 func TestNetVersion(t *testing.T) {
 
-	messageToSend := "{\"method\":\"net_version\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"net_version\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 }
 func TestNetPeerCount(t *testing.T) {
 
-	messageToSend := "{\"method\":\"net_peerCount\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"net_peerCount\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 }
 
 // func TestEthsyncing(t *testing.T) {
@@ -83,19 +94,19 @@ func TestNetPeerCount(t *testing.T) {
 // }
 func TestEthHashrate(t *testing.T) {
 
-	messageToSend := "{\"method\":\"eth_hashrate\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"eth_hashrate\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 }
 func TestEthgasPrice(t *testing.T) {
 
-	messageToSend := "{\"method\":\"eth_gasPrice\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"eth_gasPrice\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 }
 
 // func TestEthMining(t *testing.T) {
@@ -115,38 +126,39 @@ func TestEthgasPrice(t *testing.T) {
 
 func TestEthblockNumber(t *testing.T) {
 
-	messageToSend := "{\"method\":\"eth_blockNumber\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"eth_blockNumber\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 }
 
-func TestEthtransactionByHash(t *testing.T) {
+func TestEthTransactionByHash(t *testing.T) {
 	//devuelve otro map, consultar como revisarlo
-	messageToSend := "{\"method\":\"eth_getTransactionByHash\",\"params\":[\"0x83ce0345913f2cac30e1e0d04ceb83bc01bd0c7e28219c2df593bfabaf58d68c\"],\"jsonrpc\":\"2.0\",\"id\":67}"
+	var messageToSend string = "{\"method\":\"eth_getTransactionByHash\",\"params\":[\"0x83ce0345913f2cac30e1e0d04ceb83bc01bd0c7e28219c2df593bfabaf58d68c\"],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	var jsonResponse []byte = WebSocketCall(messageToSend)
+	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	PrintResult(jsonResponse, t)
+	basicValidations(jsonObject, t, typeObject)
 
 }
 
 func TestEthsubmitHashrate(t *testing.T) {
 	//devuelve un bool ver como chequearlo
-	messageToSend := "{\"method\":\"eth_submitHashrate\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000500000\",\"0x59daa26581d0acd1fce254fb7e85952f4c09d0915afd33d3886cd914bc7d283c\"],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"eth_submitHashrate\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000500000\",\"0x59daa26581d0acd1fce254fb7e85952f4c09d0915afd33d3886cd914bc7d283c\"],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t, typeBoolean)
 }
 
 func TestEthsubmitWork(t *testing.T) {
 	//devuelve un bool ver como chequearlo
-	messageToSend := "{\"method\":\"eth_submitWork\",\"params\":[\"0x0000000000000001\",\"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\",\"0xD1FE5700000000000000000000000000D1FE5700000000000000000000000000\"],\"jsonrpc\":\"2.0\",\"id\":67}"
+	// messageToSend := "{\"method\":\"eth_submitWork\",\"params\":[\"0x0000000000000001\",\"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\",\"0xD1FE5700000000000000000000000000D1FE5700000000000000000000000000\"],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-	jsonResponse := WebSocketCall(messageToSend)
+	// jsonResponse := WebSocketCall(messageToSend)
 
-	PrintResult(jsonResponse, t)
+	// validate(jsonResponse, t)
 
 }
