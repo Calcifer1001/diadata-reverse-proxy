@@ -8,12 +8,14 @@ import (
 	"websocket"
 )
 
-var primaryUrl = "wss://kovan.infura.io/ws/v3/a0bfa51a18b24e1fac45a36481bf7f61"
+// var primaryUrl = "wss://eth-kovan.alchemyapi.io/v2/B41RjkzXgvqrWxmYaj0aNiDnNfm_NSO4" Alchemy doesn't support all the tested methods.
 
+var primaryUrl = "wss://kovan.infura.io/ws/v3/a0bfa51a18b24e1fac45a36481bf7f61"
 var typeObject = reflect.TypeOf(make(map[string]interface{}))
 var typeString = reflect.TypeOf("")
 var typeBoolean = reflect.TypeOf(true)
-var typeInterface = reflect.TypeOf(nil)
+var typeInterface = reflect.TypeOf(make([]interface{}, 0))
+var typesSlice []reflect.Type
 
 func printMap(json map[string]interface{}, t *testing.T) {
 	for k, v := range json {
@@ -33,24 +35,25 @@ func WebSocketCall(Message string) []byte {
 	return jsonResponse
 }
 
-func basicValidations(result map[string]interface{}, t *testing.T, dataType reflect.Type) {
+func basicValidations(result map[string]interface{}, t *testing.T, dataTypes []reflect.Type) {
 
-	// modificar esta funcion para que devuelva un bool de si la validacion es correcta o no para los casos
-	// en los que la llamada puede devolver distintos tipos, por ej: eth_syncing devuelve un bool si no esta
-	// sincronizando pero devuelve un string en caso de que si lo este.
+	printMap(result, t) //This func is only for viewing the method's responses. Could be deleted
 
-	printMap(result, t) //sacar de esta funcion, solo está para revisar por ahora
-	var searchedAttribute string = "result"
+	searchedAttribute := "result"
+	validationPass := false
 	value, ok := result[searchedAttribute]
-	t.Log(value) //eliminar, es solo de verificacion
+	var typeOfValue = reflect.TypeOf(value)
+
 	if !ok {
 		t.Errorf("Searched attribute %v not found", searchedAttribute)
 	}
-	var typeOfValue = reflect.TypeOf(value)
-	t.Log(typeOfValue)
-	if dataType != typeOfValue {
-		t.Errorf("Value %v is not a %v", value, dataType)
+	for _, dataType := range dataTypes {
+		validationPass = validationPass || dataType == typeOfValue
 	}
+	if !validationPass {
+		t.Errorf("Unespected type of response")
+	}
+
 }
 
 func convertToObject(response []byte) map[string]interface{} {
@@ -68,8 +71,12 @@ func TestWeb3ClientVersion(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
+
 func TestWeb3Sha3(t *testing.T) {
 
 	var messageToSend string = "{\"method\":\"web3_sha3\",\"params\":[\"0x68656c6c6f20776f726c64\"],\"jsonrpc\":\"2.0\",\"id\":67}"
@@ -78,8 +85,13 @@ func TestWeb3Sha3(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	basicValidations(jsonObject, t, typesSlice)
+
 }
+
 func TestNetVersion(t *testing.T) {
 
 	var messageToSend string = "{\"method\":\"net_version\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
@@ -88,8 +100,12 @@ func TestNetVersion(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
+
 func TestNetPeerCount(t *testing.T) {
 
 	var messageToSend string = "{\"method\":\"net_peerCount\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
@@ -98,7 +114,10 @@ func TestNetPeerCount(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthsyncing(t *testing.T) {
@@ -109,7 +128,11 @@ func TestEthsyncing(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeBoolean)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+	typesSlice = append(typesSlice, typeBoolean)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
 func TestEthHashrate(t *testing.T) {
 
@@ -119,8 +142,12 @@ func TestEthHashrate(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
+
 func TestEthgasPrice(t *testing.T) {
 
 	var messageToSend string = "{\"method\":\"eth_gasPrice\",\"params\":[],\"jsonrpc\":\"2.0\",\"id\":67}"
@@ -129,8 +156,10 @@ func TestEthgasPrice(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
 
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthMining(t *testing.T) {
@@ -140,7 +169,10 @@ func TestEthMining(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeBoolean)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeBoolean)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthaccounts(t *testing.T) {
@@ -151,7 +183,10 @@ func TestEthaccounts(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeInterface)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeInterface)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthblockNumber(t *testing.T) {
@@ -162,8 +197,10 @@ func TestEthblockNumber(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeString)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
 
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthTransactionByHash(t *testing.T) {
@@ -174,8 +211,10 @@ func TestEthTransactionByHash(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeObject)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeObject)
 
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthsubmitHashrate(t *testing.T) {
@@ -186,7 +225,10 @@ func TestEthsubmitHashrate(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeBoolean)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeBoolean)
+
+	basicValidations(jsonObject, t, typesSlice)
 }
 
 func TestEthsubmitWork(t *testing.T) {
@@ -197,6 +239,8 @@ func TestEthsubmitWork(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	basicValidations(jsonObject, t, typeBoolean)
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeBoolean)
 
+	basicValidations(jsonObject, t, typesSlice)
 }
