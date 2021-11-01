@@ -34,10 +34,10 @@ func ExtractResult(jsonObject map[string]interface{}, attribute string, t *testi
 func CompareResults(first, second, third interface{}, t *testing.T) interface{} {
 	switch {
 	case first == second, first == third:
-		t.Log(first)
+		// t.Log(first)
 		return first
 	case second == third:
-		t.Log(second)
+		// t.Log(second)
 		return second
 	default:
 		fmt.Printf("No matches between responses: %v, %v, %v", first, second, third)
@@ -100,4 +100,31 @@ func TestNetListening(t *testing.T) {
 	typesSlice = append(typesSlice, typeBoolean)
 
 	ValidateResult(comparedResult, t, typesSlice)
+
+	fmt.Printf("value of response: %v \n", comparedResult) //this line is for work-in-progress test. Will be deleted
+}
+
+func TestEthGetBalance(t *testing.T) {
+	messageToSend := "{\"method\":\"eth_getBalance\",\"params\":[\"0xa7719d2eD3849D3CD10991b91f1E8D9a2044eD45\",\"latest\"],\"jsonrpc\":\"2.0\",\"id\":67}"
+
+	jsonResponse1 := Caller(messageToSend, PrimaryUrl)
+	jsonResponse2 := Caller(messageToSend, SecondaryUrl)
+	jsonResponse3 := Caller(messageToSend, ThirdUrl)
+
+	var jsonObject1 map[string]interface{} = convertToObject(jsonResponse1)
+	var jsonObject2 map[string]interface{} = convertToObject(jsonResponse2)
+	var jsonObject3 map[string]interface{} = convertToObject(jsonResponse3)
+
+	result1 := ExtractResult(jsonObject1, searchedAttribute, t)
+	result2 := ExtractResult(jsonObject2, searchedAttribute, t)
+	result3 := ExtractResult(jsonObject3, searchedAttribute, t)
+
+	comparedResult := CompareResults(result1, result2, result3, t)
+
+	typesSlice = nil
+	typesSlice = append(typesSlice, typeString)
+
+	ValidateResult(comparedResult, t, typesSlice)
+
+	fmt.Printf("value of response: %v \n", comparedResult) //this line is for work-in-progress test. Will be deleted
 }
