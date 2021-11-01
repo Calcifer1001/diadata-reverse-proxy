@@ -16,10 +16,10 @@ var messagePart1 = "{\"method\":\""
 var messagePart2 = "\",\"params\":["
 var messagePart3 = "],\"jsonrpc\":\"2.0\",\"id\":67}"
 
-func Caller(Message string, NodeUrl string) []byte {
+func Caller(message string, NodeUrl string) []byte {
 
 	Dial, _, _ := websocket.DefaultDialer.Dial(NodeUrl, nil)
-	Dial.WriteMessage(websocket.TextMessage, []byte(Message))
+	Dial.WriteMessage(websocket.TextMessage, []byte(message))
 	typeMessage, jsonResponse, _ := Dial.ReadMessage()
 	expectedTypeMessage := websocket.TextMessage
 	if typeMessage != expectedTypeMessage {
