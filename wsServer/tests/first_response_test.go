@@ -71,9 +71,9 @@ func TestWeb3ClientVersion(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	typesSlice = nil
+	var typesSlice = make([]reflect.Type, 0)
 	typesSlice = append(typesSlice, typeString)
-
+	fmt.Printf("Types slice: %v", typesSlice)
 	basicValidations(jsonObject, t, typesSlice)
 }
 
@@ -85,7 +85,7 @@ func TestWeb3Sha3(t *testing.T) {
 
 	var jsonObject map[string]interface{} = convertToObject(jsonResponse)
 
-	typesSlice = nil
+	var typesSlice = make([]reflect.Type, 0)
 	typesSlice = append(typesSlice, typeString)
 
 	basicValidations(jsonObject, t, typesSlice)

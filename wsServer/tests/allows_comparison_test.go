@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"websocket"
 )
@@ -12,6 +13,7 @@ var PrimaryUrl = "wss://kovan.infura.io/ws/v3/a0bfa51a18b24e1fac45a36481bf7f61"
 var SecondaryUrl = "wss://eth-kovan.alchemyapi.io/v2/B41RjkzXgvqrWxmYaj0aNiDnNfm_NSO4"
 var ThirdUrl = "wss://kovan.infura.io/ws/v3/be1a3f5f45994142bb67759b9fef28c5"
 var searchedAttribute = "result"
+var jsonRequest = "{\"method\":\"[method]\",\"params\":[[params]],\"jsonrpc\":\"2.0\",\"id\":67}"
 var messagePart1 = "{\"method\":\""
 var messagePart2 = "\",\"params\":["
 var messagePart3 = "],\"jsonrpc\":\"2.0\",\"id\":67}"
@@ -34,18 +36,33 @@ func ExtractResult(jsonObject map[string]interface{}, attribute string, t *testi
 	}
 	return value
 }
-func CompareResults(first, second, third interface{}, t *testing.T) interface{} {
-	switch {
-	case first == second, first == third:
-		// t.Log(first)
-		return first
-	case second == third:
-		// t.Log(second)
-		return second
-	default:
-		fmt.Printf("No matches between responses: %v, %v, %v", first, second, third)
-		return nil
+func CompareResults(r1, r2, r3 interface{}, t *testing.T) interface{} {
+	return nil
+}
+func compareResults(resultSlice []interface{}, t *testing.T) interface{} {
+	for index, result := range resultSlice {
+		for index2, result2 := range resultSlice {
+			if index == index2 {
+				continue
+			}
+			if result == result2 {
+				return result
+			}
+		}
 	}
+	fmt.Printf("No matches between responses: %v", resultSlice)
+	return nil
+	// switch {
+	// case first == second, first == third:
+	// 	// t.Log(first)
+	// 	return first
+	// case second == third:
+	// 	// t.Log(second)
+	// 	return second
+	// default:
+	// 	fmt.Printf("No matches between responses: %v, %v, %v", first, second, third)
+	// 	return nil
+	// }
 }
 func ValidateResult(result interface{}, t *testing.T, dataTypes []reflect.Type) {
 	var typeOfValue = reflect.TypeOf(result)
@@ -61,26 +78,42 @@ func ValidateResult(result interface{}, t *testing.T, dataTypes []reflect.Type) 
 
 func TestEthprotocolVersion(t *testing.T) {
 
+	// Buscar algún tipo de BeforeTest
+	var urlSlice = make([]string, 0)
+	urlSlice = append(urlSlice, PrimaryUrl)
+	urlSlice = append(urlSlice, SecondaryUrl)
+	// Tertiary
+	urlSlice = append(urlSlice, ThirdUrl)
+
 	methodName := "eth_protocolVersion"
 	params := ""
-	messageToSend := messagePart1 + methodName + messagePart2 + params + messagePart3
+	// messageToSend := messagePart1 + methodName + messagePart2 + params + messagePart3
+	var messageToSend = jsonRequest
+	messageToSend = strings.Replace(messageToSend, "[method]", methodName, -1)
+	messageToSend = strings.Replace(messageToSend, "[params]", params, -1)
 
-	jsonResponse1 := Caller(messageToSend, PrimaryUrl)
-	jsonResponse2 := Caller(messageToSend, SecondaryUrl)
-	jsonResponse3 := Caller(messageToSend, ThirdUrl)
+	var resultSlice = make([]interface{}, 0)
+	for _, url := range urlSlice {
+		var jsonResponse = Caller(messageToSend, url)
+		var jsonObject map[string]interface{} = convertToObject(jsonResponse)
+		result := ExtractResult(jsonObject, searchedAttribute, t)
+		resultSlice = append(resultSlice, result)
+	}
+	// jsonResponse1 := Caller(messageToSend, PrimaryUrl)
+	// jsonResponse2 := Caller(messageToSend, SecondaryUrl)
+	// jsonResponse3 := Caller(messageToSend, ThirdUrl)
 
-	var jsonObject1 map[string]interface{} = convertToObject(jsonResponse1)
-	var jsonObject2 map[string]interface{} = convertToObject(jsonResponse2)
-	var jsonObject3 map[string]interface{} = convertToObject(jsonResponse3)
+	// var jsonObject1 map[string]interface{} = convertToObject(jsonResponse1)
+	// var jsonObject2 map[string]interface{} = convertToObject(jsonResponse2)
+	// var jsonObject3 map[string]interface{} = convertToObject(jsonResponse3)
 
-	result1 := ExtractResult(jsonObject1, searchedAttribute, t)
-	result2 := ExtractResult(jsonObject2, searchedAttribute, t)
-	result3 := ExtractResult(jsonObject3, searchedAttribute, t)
+	// result1 := ExtractResult(jsonObject1, searchedAttribute, t)
+	// result2 := ExtractResult(jsonObject2, searchedAttribute, t)
+	// result3 := ExtractResult(jsonObject3, searchedAttribute, t)
 
-	comparedResult := CompareResults(result1, result2, result3, t)
+	comparedResult := compareResults(resultSlice, t)
 
-	typesSlice = nil
-	typesSlice = append(typesSlice, typeString)
+	var typesSlice = append(typesSlice, typeString)
 
 	ValidateResult(comparedResult, t, typesSlice)
 }
