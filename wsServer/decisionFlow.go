@@ -1,7 +1,5 @@
 package main
 
-import "encoding/json"
-
 var firstResponseServices []string = make([]string, 0)
 var compareServices []string = make([]string, 0)
 var sendOnlyOnceServices []string = make([]string, 0)
@@ -17,6 +15,8 @@ var ACTION_DEPRECATED = 4
 
 func initializeServiceLists() {
 	firstResponseServices = append(firstResponseServices, "web3_clientVersion")
+
+	compareServices = append(compareServices, "eth_subscribe")
 }
 
 /**
@@ -49,12 +49,12 @@ func getAction(service string) int {
 /**
 * Returns in the first position the id of the message and in the second the actionId acording to the constants defined on top
  */
-func getActionAndIdFromMessage(message []byte) (int, int) {
-	var result map[string]interface{}
-	json.Unmarshal(message, &result)
+// func getActionAndIdFromMessage(message []byte) (float64, int) {
+// 	var result map[string]interface{}
+// 	json.Unmarshal(message, &result)
 
-	return result["id"].(int), getAction(result["method"].(string))
-}
+// 	return result["id"].(float64), getAction(result["method"].(string))
+// }
 
 func arrayContains(array []string, element string) bool {
 	for _, arrayElement := range array {
