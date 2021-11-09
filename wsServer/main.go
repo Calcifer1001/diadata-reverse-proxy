@@ -24,18 +24,19 @@ var pendingResponses map[float64]*Client
 var rpcMessageHandler chan MessageData
 
 type Client struct {
-	Id                   int
-	Connection           *websocket.Conn
-	SubscriptionHashList []string
-	PendingResponses     map[float64]int
-	ResponseHandler      chan MessageData
+	Id                      int
+	Connection              *websocket.Conn
+	SubscriptionHashList    []string
+	PendingResponses        map[float64]int
+	MessagesAwaitingCompare []MessageData
+	ResponseHandler         chan MessageData
 }
 
 type MessageData struct {
 	TypeMessage           int
 	Message               []byte
 	MessageAsJson         map[string]interface{}
-	Name                  string
+	RpcName               string
 	Err                   error
 	TimeReceivedInSeconds int64
 }
@@ -118,20 +119,39 @@ func handleMessageWithId(message MessageData) {
 	}
 	var client *Client = pendingResponses[id]
 	var action int = getActionFromPendingResponses(client, id)
+	// to avoid tons of repeated code this flag is created and handled right after the switch
+
 	switch action {
-	case ACTION_SEND_FIRST_RESPONSE:
+	case ACTION_SERVICE_DOESNT_EXISTS,
+		ACTION_SEND_FIRST_RESPONSE,
+		ACTION_SEND_ONLY_ONCE,
+		ACTION_SEND_ONLY_TO_PRIMARY,
+		ACTION_DEPRECATED:
+
 		client.Connection.WriteMessage(message.TypeMessage, message.Message)
 		delete(pendingResponses, id)
 		delete(client.PendingResponses, id)
+
 	case ACTION_COMPARE_SERVICES:
-
-	case ACTION_SEND_ONLY_ONCE:
-
-	case ACTION_SEND_ONLY_TO_PRIMARY:
+		// send = compareMessageWithPendingMessages(message, client)
 
 	}
 
 }
+
+// func compareMessageWithPendingMessages(message MessageData, client *Client) bool {
+// 	for _, pendingMessage := range client.MessagesAwaitingCompare {
+
+// 	}
+// }
+
+// func equals(message1, message2 MessageData) bool {
+// 	var result1 map[string]interface{} = message1.MessageAsJson
+// 	var result2 map[string]interface{} = message2.MessageAsJson
+
+// 	// Cannot use deep equal because some server return message with uppercase and some with lowercase
+// 	return strings.EqualFold(fmt.Sprint(result1), fmt.Sprint(result2))
+// }
 
 func getActionFromPendingResponses(client *Client, id float64) int {
 	return client.PendingResponses[id]
@@ -160,6 +180,7 @@ func createClient(connection *websocket.Conn) Client {
 	client.Connection = connection
 	client.SubscriptionHashList = make([]string, 0)
 	client.PendingResponses = make(map[float64]int)
+	client.MessagesAwaitingCompare = make([]MessageData, 0)
 	client.ResponseHandler = make(chan MessageData)
 	return client
 }
@@ -172,32 +193,30 @@ func handleMessageReceivedFromClient(client *Client, typeMessage int, message []
 	case ACTION_SERVICE_DOESNT_EXISTS:
 		// Send to the corresponding channel the response
 		var result MessageData = createErrorResponse(id, "Service doesn't exists")
-		client.ResponseHandler <- result
-	case ACTION_SEND_FIRST_RESPONSE:
-		fmt.Println("Message to send after first response")
+		rpcMessageHandler <- result
+	case ACTION_SEND_FIRST_RESPONSE, ACTION_COMPARE_SERVICES:
 		for _, rpc := range rpcList {
 			rpc.Connection.WriteMessage(typeMessage, message)
 		}
-	case ACTION_COMPARE_SERVICES:
-		for _, rpc := range rpcList {
-			rpc.Connection.WriteMessage(typeMessage, message)
-		}
-	case ACTION_SEND_ONLY_ONCE:
-		rpcList[0].Connection.WriteMessage(typeMessage, message)
-	case ACTION_SEND_ONLY_TO_PRIMARY:
+	case ACTION_SEND_ONLY_ONCE, ACTION_SEND_ONLY_TO_PRIMARY:
 		rpcList[0].Connection.WriteMessage(typeMessage, message)
 	case ACTION_DEPRECATED:
 		var result MessageData = createErrorResponse(id, "Service deprecated")
-		client.ResponseHandler <- result
+		rpcMessageHandler <- result
 	}
 }
 
 func createErrorResponse(id float64, message string) MessageData {
-	var jsonMessage string = fmt.Sprintf("{\"id\":%f,\"result\":%s}", id, message)
+	var jsonMessage string = fmt.Sprintf("{\"id\":%.0f,\"result\":\"%s\"}", id, message)
 	var messageData MessageData
 	messageData.TypeMessage = websocket.TextMessage
 	messageData.Message = []byte(jsonMessage)
-	messageData.Name = "primary"
+
+	var result map[string]interface{}
+	json.Unmarshal(messageData.Message, &result)
+	messageData.MessageAsJson = result
+
+	messageData.RpcName = "primary"
 	messageData.Err = nil
 	messageData.TimeReceivedInSeconds = 0
 	return messageData
@@ -221,7 +240,7 @@ func readMessagesFromRPC(rpcInfo RpcInfo) {
 		res.TypeMessage = typeMessage
 		res.Message = message
 		res.MessageAsJson = result
-		res.Name = rpcInfo.Name
+		res.RpcName = rpcInfo.Name
 		res.Err = err
 		res.TimeReceivedInSeconds = time.Now().Unix()
 		rpcMessageHandler <- res
