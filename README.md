@@ -59,3 +59,8 @@ This case is completely special. When you get any rpc response from the method "
 The comparison of the received messages will be done concerning this 3 hashes and you might not get a transaction's information that happened, only in the case that the proxy doesn't receive two equal responses. This should be completely rare. 
 
 This text might not be entirely clear, but we did our best. Feel free to contact us in case you don't understand it. :)
+
+### Testing
+
+There are two test files in wsServer/tests witch allows to verify the websocket connection with the servers for the supported RPC methods, one with the first response methods and other with the comparison of responses. 
+To run the tests simply go to the wsServer/tests directory and run in a terminal the command "go test" 
