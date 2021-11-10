@@ -13,7 +13,7 @@ go run main.go decisionFlow.go
 
 After this you need to send a json message as the rpc server expects. Most of the examples are at https://eth.wiki/json-rpc/API at the JSON-RPC methods section
 
-One way of sending the messages is using [websocat]https://github.com/vi/websocat on linux.
+One way of sending the messages is using [websocat](https://github.com/vi/websocat) on linux.
 
 If you run the proxy and the communication locally, and want to get the web3_clientVersion:
 
