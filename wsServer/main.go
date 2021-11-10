@@ -8,7 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
-	"websocket"
+
+	"github.com/gorilla/websocket"
 )
 
 // Acomodar ids
