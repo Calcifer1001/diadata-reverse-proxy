@@ -6,9 +6,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 	"websocket"
 )
+
+// Acomodar ids
+// Hacer comparaciones servicios con id
+// Hacer comparaciones servicios sin id
 
 var upgrader = websocket.Upgrader{}
 
@@ -19,8 +24,9 @@ var tertiaryUrl = "wss://eth-mainnet.alchemyapi.io/v2/v1bo6tRKiraJ71BVGKmCtWVedA
 
 var currentId = 10000
 
-var clientList []Client
+var clientList []*Client
 var pendingResponses map[float64]*Client
+var subscribePendingResponses map[float64]*Client
 var rpcMessageHandler chan MessageData
 
 type Client struct {
@@ -28,6 +34,7 @@ type Client struct {
 	Connection              *websocket.Conn
 	SubscriptionHashList    []string
 	PendingResponses        map[float64]int
+	PendingSubscriptionId   float64
 	MessagesAwaitingCompare []MessageData
 	ResponseHandler         chan MessageData
 }
@@ -58,8 +65,9 @@ func init() {
 }
 
 func main() {
-	clientList = make([]Client, 0)
+	clientList = make([]*Client, 0)
 	pendingResponses = make(map[float64]*Client)
+	subscribePendingResponses = make(map[float64]*Client)
 	rpcMessageHandler = make(chan MessageData)
 
 	initializeRpcList()
@@ -70,7 +78,7 @@ func main() {
 		// defer clientConnection.Close()
 
 		var client Client = createClient(clientConnection)
-		clientList = append(clientList, client)
+		clientList = append(clientList, &client)
 
 		go readMessageFromClientAndHandle(&client)
 
@@ -103,11 +111,31 @@ func handleMessageReceivedFromRpc() {
 		var message MessageData = <-rpcMessageHandler
 		// In all the methods except when you are already subscribed, the message contains an Id
 		// When you are already subscribed, you don't get an Id parameter, but a subscription hash instead.
-		if _, ok := message.MessageAsJson["id"]; ok {
-			handleMessageWithId(message)
+		if id, ok := message.MessageAsJson["id"]; ok {
+			if _, ok2 := subscribePendingResponses[id.(float64)]; ok2 {
+				handleSubscriptionMessage(message)
+			} else {
+				handleMessageWithId(message)
+			}
 		} else {
-
+			handleSubscribedMessage(message)
 		}
+	}
+}
+
+func handleSubscriptionMessage(message MessageData) {
+	var id = message.MessageAsJson["id"].(float64)
+	var client *Client = pendingResponses[id]
+	var hash string = message.MessageAsJson["result"].(string)
+	client.SubscriptionHashList = append(client.SubscriptionHashList, hash)
+	pendingResponses[id] = client
+	if len(client.SubscriptionHashList) == 1 {
+		client.Connection.WriteMessage(message.TypeMessage, message.Message)
+	}
+	if len(client.SubscriptionHashList) >= 3 {
+		delete(pendingResponses, id)
+		delete(subscribePendingResponses, id)
+		delete(client.PendingResponses, id)
 	}
 }
 
@@ -133,25 +161,92 @@ func handleMessageWithId(message MessageData) {
 		delete(client.PendingResponses, id)
 
 	case ACTION_COMPARE_SERVICES:
-		// send = compareMessageWithPendingMessages(message, client)
+		index, send := compareMessageWithPendingMessages(message, client)
+		if send {
+			client.Connection.WriteMessage(message.TypeMessage, message.Message)
+			delete(pendingResponses, id)
+			delete(client.PendingResponses, id)
+			// Removes the message from the slice
+			client.MessagesAwaitingCompare = append(client.MessagesAwaitingCompare[:index], client.MessagesAwaitingCompare[index+1:]...)
+		} else {
+			client.MessagesAwaitingCompare = append(client.MessagesAwaitingCompare, message)
+		}
 
 	}
 
 }
 
-// func compareMessageWithPendingMessages(message MessageData, client *Client) bool {
-// 	for _, pendingMessage := range client.MessagesAwaitingCompare {
+func handleSubscribedMessage(message MessageData) {
+	var hash string = message.MessageAsJson["params"].(map[string]interface{})["subscription"].(string)
+	for _, client := range clientList {
+		for _, clientHash := range client.SubscriptionHashList {
+			if clientHash == hash {
+				index, send := shouldSendMessage(message, client)
+				if send {
+					setHash(&message, client.SubscriptionHashList[0])
+					client.Connection.WriteMessage(message.TypeMessage, message.Message)
+					// Removes message from expecting messages
+					client.MessagesAwaitingCompare = append(client.MessagesAwaitingCompare[:index], client.MessagesAwaitingCompare[index+1:]...)
+				} else {
+					client.MessagesAwaitingCompare = append(client.MessagesAwaitingCompare, message)
+				}
+			}
+		}
+	}
+}
 
-// 	}
-// }
+func setHash(message *MessageData, hash string) {
+	message.MessageAsJson["params"].(map[string]interface{})["subscription"] = hash
+	newMessage, err := json.Marshal(message.MessageAsJson)
+	if err != nil {
+		fmt.Println("Error converting json to string")
+	}
+	message.Message = newMessage
 
-// func equals(message1, message2 MessageData) bool {
-// 	var result1 map[string]interface{} = message1.MessageAsJson
-// 	var result2 map[string]interface{} = message2.MessageAsJson
+}
 
-// 	// Cannot use deep equal because some server return message with uppercase and some with lowercase
-// 	return strings.EqualFold(fmt.Sprint(result1), fmt.Sprint(result2))
-// }
+func shouldSendMessage(message MessageData, client *Client) (int, bool) {
+	for index, previousMessage := range client.MessagesAwaitingCompare {
+		if equals(previousMessage, message) {
+			return index, true
+		}
+	}
+	return -1, false
+}
+
+func handleSubscribe(client *Client, message []byte) {
+	var result map[string]interface{}
+	json.Unmarshal(message, &result)
+	if result["method"] == "eth_subscribe" {
+		var id float64 = result["id"].(float64)
+		subscribePendingResponses[id] = client
+		client.PendingSubscriptionId = id
+	}
+}
+
+func compareMessageWithPendingMessages(message MessageData, client *Client) (int, bool) {
+	var newMessageResult map[string]interface{} = extractResult(message.MessageAsJson)
+	for index, pendingMessage := range client.MessagesAwaitingCompare {
+		var pendingMessageResult map[string]interface{} = extractResult(pendingMessage.MessageAsJson)
+		if strings.EqualFold(fmt.Sprint(newMessageResult), fmt.Sprint(pendingMessageResult)) {
+			return index, true
+		}
+	}
+	return -1, false
+}
+
+func equals(message1, message2 MessageData) bool {
+
+	var result1 = message1.MessageAsJson["params"].(map[string]interface{})["result"]
+	var result2 = message1.MessageAsJson["params"].(map[string]interface{})["result"]
+	// return result1 == result2
+	// Cannot use deep equal because some server return message with uppercase and some with lowercase
+	return strings.EqualFold(fmt.Sprint(result1), fmt.Sprint(result2))
+}
+
+func extractResult(message map[string]interface{}) map[string]interface{} {
+	return message["params"].(map[string]interface{})["result"].(map[string]interface{})
+}
 
 func getActionFromPendingResponses(client *Client, id float64) int {
 	return client.PendingResponses[id]
@@ -186,6 +281,7 @@ func createClient(connection *websocket.Conn) Client {
 }
 
 func handleMessageReceivedFromClient(client *Client, typeMessage int, message []byte) {
+	handleSubscribe(client, message)
 	var id, action = getActionAndIdFromClientMessage(message)
 	pendingResponses[id] = client
 	client.PendingResponses[id] = action
@@ -232,6 +328,10 @@ func getActionAndIdFromClientMessage(message []byte) (float64, int) {
 func readMessagesFromRPC(rpcInfo RpcInfo) {
 	for {
 		typeMessage, message, err := rpcInfo.Connection.ReadMessage()
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
 		log.Printf("Message received from %s\n", rpcInfo.Name)
 		var result map[string]interface{}
 		json.Unmarshal(message, &result)

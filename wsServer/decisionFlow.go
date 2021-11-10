@@ -28,6 +28,10 @@ func initializeServiceLists() {
 	firstResponseServices = append(firstResponseServices, "eth_getTransactionByHash")
 	firstResponseServices = append(firstResponseServices, "eth_submitWork")
 	firstResponseServices = append(firstResponseServices, "eth_submitHashrate")
+	// eth_subscribe is not a comparison method, because the response contains different hash for every rpc
+	// This triggers subsequent responses of eth_subscription messages that should be compared and are treated differently
+	firstResponseServices = append(firstResponseServices, "eth_subscribe")
+
 	compareServices = append(compareServices, "net_listening")
 	compareServices = append(compareServices, "eth_protocolVersion")
 	compareServices = append(compareServices, "eth_getBalance")
@@ -45,6 +49,7 @@ func initializeServiceLists() {
 	compareServices = append(compareServices, "eth_getTransactionReceipt")
 	compareServices = append(compareServices, "eth_getUncleByBlockHashAndIndex")
 	compareServices = append(compareServices, "eth_getUncleByBlockNumberAndIndex")
+
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_newFilter")
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_newBlockFilter")
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_newPendingTransactionFilter")
@@ -52,6 +57,7 @@ func initializeServiceLists() {
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_getFilterChanges")
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_getFilterLogs")
 	sendOnlyToPrimaryServices = append(sendOnlyToPrimaryServices, "eth_getLogs")
+
 	deprecatedServices = append(deprecatedServices, "eth_coinbase")
 	deprecatedServices = append(deprecatedServices, "eth_sign")
 	deprecatedServices = append(deprecatedServices, "eth_getCompilers")
